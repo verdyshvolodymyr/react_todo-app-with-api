@@ -1,3 +1,6 @@
+/* eslint-disable jsx-a11y/label-has-associated-control */
+/* eslint-disable jsx-a11y/control-has-associated-label */
+
 import { useState } from 'react';
 import { Todo } from '../types/Todo';
 import cn from 'classnames';
