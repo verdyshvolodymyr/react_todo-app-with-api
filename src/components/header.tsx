@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Todo } from '../types/Todo';
 import cn from 'classnames';
+import { Todo } from '../types/Todo';
 import { getTodos, updateTodos } from '../api/todos';
 
 type Props = {
@@ -8,6 +8,7 @@ type Props = {
   userTodos: Todo[];
   setUserTodos: React.Dispatch<React.SetStateAction<Todo[]>>;
   setIsLoader: React.Dispatch<React.SetStateAction<string | number | null>>;
+  focusSignal?: number;
 };
 
 export const Header: React.FC<Props> = ({
@@ -15,67 +16,79 @@ export const Header: React.FC<Props> = ({
   userTodos,
   setUserTodos,
   setIsLoader,
+  focusSignal,
 }) => {
   const [title, setTitle] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
   const [isDisabled, setDisabled] = useState(false);
   const [isToggleAllButton, setIsToggleAllButton] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    const AllToggle = userTodos.every(item => item.completed === true);
+    inputRef.current?.focus();
+  }, []);
 
-    setIsToggleAllButton(AllToggle);
+  useEffect(() => {
+    if (focusSignal !== undefined) {
+      inputRef.current?.focus();
+    }
+  }, [focusSignal]);
+
+  useEffect(() => {
+    const allCompleted =
+      userTodos.length > 0 && userTodos.every(t => t.completed);
+
+    setIsToggleAllButton(allCompleted);
   }, [userTodos]);
 
-  const handleTitleChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setTitle(event.target.value);
+  const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setTitle(e.target.value);
   };
 
-  if (true) {
-    setTimeout(() => {
-      inputRef.current?.focus();
-    }, 0);
-  }
+  const toggleAllButton = async () => {
+    if (userTodos.length === 0) {
+      return;
+    }
 
-  function toggleAllButton() {
     const shouldComplete = !isToggleAllButton;
 
     setIsLoader('all');
 
-    const promises = userTodos.map(todo => {
-      return updateTodos({
-        id: todo.id,
-        completed: shouldComplete,
-        title: todo.title,
-      });
-    });
+    try {
+      const toUpdate = userTodos.filter(t => t.completed !== shouldComplete);
 
-    Promise.all(promises)
-      .then(() => {
-        getTodos().then(data => setUserTodos(data));
-      })
-      .finally(() => setIsLoader(null));
-  }
+      await Promise.all(
+        toUpdate.map(todo =>
+          updateTodos({
+            id: todo.id,
+            completed: shouldComplete,
+            title: todo.title,
+          }),
+        ),
+      );
 
-  const handleSubmit = (event: React.FormEvent) => {
-    event.preventDefault();
+      const updated = await getTodos();
+
+      setUserTodos(updated);
+    } finally {
+      setIsLoader(null);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const trimmed = title.trim();
+
     setDisabled(true);
-
-    onSubmit(title.trim())
-      .then(() => {
+    try {
+      await onSubmit(trimmed);
+      if (trimmed) {
         setTitle('');
-        setDisabled(false);
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 0);
-      })
-      .catch(() => {
-        setDisabled(false);
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 0);
-      });
+      }
+    } catch {
+    } finally {
+      setDisabled(false);
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
   };
 
   return (
@@ -84,7 +97,8 @@ export const Header: React.FC<Props> = ({
         type="button"
         className={cn('todoapp__toggle-all', { active: isToggleAllButton })}
         data-cy="ToggleAllButton"
-        onClick={() => toggleAllButton()}
+        disabled={userTodos.length === 0}
+        onClick={toggleAllButton}
       />
 
       <form onSubmit={handleSubmit}>

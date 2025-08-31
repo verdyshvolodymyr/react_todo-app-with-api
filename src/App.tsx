@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { UserWarning } from './UserWarning';
 import {
   addTodos,
@@ -17,6 +17,9 @@ import { Sort } from './types/Sort';
 import { ErrorMassage } from './components/errorMassage';
 import { ErrorMessage } from './types/ErrorMessage';
 
+const normalize = (todos: Todo[]): Todo[] =>
+  todos.map(t => ({ ...t, completed: t.completed === true }));
+
 export const App: React.FC = () => {
   const [userTodos, setUserTodos] = useState<Todo[]>([]);
   const [errorMassage, setErrorMassage] = useState<ErrorMessage | null>(null);
@@ -26,40 +29,55 @@ export const App: React.FC = () => {
   const [tempTitle, setTempTitle] = useState('');
   const [updateAfterClearDelete, setUpdateAfterClearDelete] = useState(true);
 
-  useEffect(() => {
-    getTodos()
-      .then(setUserTodos)
-      .catch(() => {
-        setErrorMassage(ErrorMessage.Load);
-      });
-  }, [updateAfterClearDelete]);
+  const [focusSignal, setFocusSignal] = useState(0);
 
-  useEffect(() => {
-    const hasCompleted = userTodos.some(todo => todo.completed);
+  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-    setClearCompletedDisabled(!hasCompleted);
-  }, [userTodos]);
-
-  useEffect(() => {
-    if (!errorMassage) {
-      return;
+  const hideErrorNow = useCallback(() => {
+    if (errorTimerRef.current) {
+      clearTimeout(errorTimerRef.current);
+      errorTimerRef.current = null;
     }
 
-    const timer = setTimeout(() => setErrorMassage(null), 3000);
+    setErrorMassage(null);
+  }, []);
 
-    return () => clearTimeout(timer);
-  }, [errorMassage]);
+  const showError = useCallback(
+    (msg: ErrorMessage) => {
+      hideErrorNow();
+      setErrorMassage(msg);
+      errorTimerRef.current = setTimeout(() => {
+        setErrorMassage(null);
+        errorTimerRef.current = null;
+      }, 3000);
+    },
+    [hideErrorNow],
+  );
+
+  useEffect(() => () => hideErrorNow(), [hideErrorNow]);
+
+  useEffect(() => {
+    getTodos()
+      .then(ts => setUserTodos(normalize(ts)))
+      .catch(() => showError(ErrorMessage.Load));
+  }, [updateAfterClearDelete, showError]);
+
+  useEffect(() => {
+    setClearCompletedDisabled(!userTodos.some(t => t.completed));
+  }, [userTodos]);
 
   if (!USER_ID) {
     return <UserWarning />;
   }
 
   function addToDo(title: string) {
-    const userId = 3216;
+    hideErrorNow();
+
+    const userId = USER_ID;
     const completed = false;
 
     if (!title) {
-      setErrorMassage(ErrorMessage.Empty);
+      showError(ErrorMessage.Empty);
 
       return Promise.resolve();
     }
@@ -69,29 +87,30 @@ export const App: React.FC = () => {
 
     return addTodos({ title, userId, completed })
       .then(newToDo => {
-        setUserTodos(currentTodos => [...currentTodos, newToDo]);
+        setUserTodos(curr => [
+          ...curr,
+          { ...newToDo, completed: newToDo.completed === true },
+        ]);
       })
-      .catch(error => {
-        setErrorMassage(ErrorMessage.Add);
-        throw error;
+      .catch(err => {
+        showError(ErrorMessage.Add);
+        throw err;
       })
-      .finally(() => {
-        setIsLoader(null);
-      });
+      .finally(() => setIsLoader(null));
   }
 
   function deletePost(postId: number) {
+    hideErrorNow();
     setIsLoader(postId);
 
     return deleteTodos(postId)
       .then(() => {
-        setUserTodos(currentPosts => {
-          return currentPosts.filter(post => post.id !== postId);
-        });
+        setUserTodos(curr => curr.filter(t => t.id !== postId));
+        setFocusSignal(s => s + 1);
       })
-      .catch(error => {
-        setErrorMassage(ErrorMessage.Delete);
-        throw error;
+      .catch(err => {
+        showError(ErrorMessage.Delete);
+        throw err;
       })
       .finally(() => setIsLoader(null));
   }
@@ -101,20 +120,21 @@ export const App: React.FC = () => {
     completed: boolean,
     title: string,
   ): Promise<void> {
+    hideErrorNow();
     setIsLoader(postId);
 
     return updateTodos({ id: postId, completed, title })
-      .then(() => {
-        getTodos().then(setUserTodos);
-      })
-      .catch(error => {
-        setErrorMassage(ErrorMessage.Update);
-        throw error;
+      .then(() => getTodos().then(ts => setUserTodos(normalize(ts))))
+      .catch(err => {
+        showError(ErrorMessage.Update);
+        throw err;
       })
       .finally(() => setIsLoader(null));
   }
 
   function clearDelete(completedTodos: Todo[]) {
+    hideErrorNow();
+
     const completedIds = completedTodos
       .filter(todo => todo.completed)
       .map(todo => todo.id);
@@ -123,32 +143,34 @@ export const App: React.FC = () => {
       deleteTodos(id)
         .then(() => ({ id, success: true }))
         .catch(() => {
-          setErrorMassage(ErrorMessage.Delete);
+          showError(ErrorMessage.Delete);
 
-          return { id, success: false };
+          return {
+            id,
+            success: false,
+          };
         }),
     );
 
     Promise.all(deleteResults).then(results => {
-      const successfulIds = results
-        .filter(result => result.success)
-        .map(result => result.id);
+      const successfulIds = results.filter(r => r.success).map(r => r.id);
 
-      setUserTodos(current =>
-        current.filter(todo => !successfulIds.includes(todo.id)),
+      setUserTodos(curr =>
+        curr.filter(todo => !successfulIds.includes(todo.id)),
       );
 
       setUpdateAfterClearDelete(prev => !prev);
+      setFocusSignal(s => s + 1);
     });
   }
 
   const sortedUserTodo = userTodos.filter(todo => {
     if (sortTodo === 'active') {
-      return todo.completed === false;
+      return !todo.completed;
     }
 
     if (sortTodo === 'completed') {
-      return todo.completed === true;
+      return todo.completed;
     }
 
     return true;
@@ -164,7 +186,9 @@ export const App: React.FC = () => {
           userTodos={userTodos}
           setUserTodos={setUserTodos}
           setIsLoader={setIsLoader}
+          focusSignal={focusSignal}
         />
+
         <TodoList
           sortedUserTodo={sortedUserTodo}
           onDelete={deletePost}
@@ -182,6 +206,7 @@ export const App: React.FC = () => {
           />
         )}
       </div>
+
       <ErrorMassage errorMassage={errorMassage} massage={setErrorMassage} />
     </div>
   );
