@@ -23,6 +23,6 @@ export function updateTodos({
   id: number;
   completed: boolean;
   title: string;
-}): Promise<void> {
+}): Promise<Todo> {
   return client.patch(`/todos/${id}`, { completed, title });
 }

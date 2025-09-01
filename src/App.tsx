@@ -124,7 +124,13 @@ export const App: React.FC = () => {
     setIsLoader(postId);
 
     return updateTodos({ id: postId, completed, title })
-      .then(() => getTodos().then(ts => setUserTodos(normalize(ts))))
+      .then(updatedTodo =>
+        setUserTodos(prevTodos =>
+          prevTodos.map(todo =>
+            todo.id === updatedTodo.id ? updatedTodo : todo,
+          ),
+        ),
+      )
       .catch(err => {
         showError(ErrorMessage.Update);
         throw err;

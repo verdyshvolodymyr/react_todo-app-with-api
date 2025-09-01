@@ -20,7 +20,7 @@ export const Header: React.FC<Props> = ({
 }) => {
   const [title, setTitle] = useState('');
   const [isDisabled, setDisabled] = useState(false);
-  const [isToggleAllButton, setIsToggleAllButton] = useState(false);
+  const [areAllCompleted, setAreAllCompleted] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -37,7 +37,7 @@ export const Header: React.FC<Props> = ({
     const allCompleted =
       userTodos.length > 0 && userTodos.every(t => t.completed);
 
-    setIsToggleAllButton(allCompleted);
+    setAreAllCompleted(allCompleted);
   }, [userTodos]);
 
   const handleTitleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,7 +49,7 @@ export const Header: React.FC<Props> = ({
       return;
     }
 
-    const shouldComplete = !isToggleAllButton;
+    const shouldComplete = !areAllCompleted;
 
     setIsLoader('all');
 
@@ -84,22 +84,24 @@ export const Header: React.FC<Props> = ({
       if (trimmed) {
         setTitle('');
       }
-    } catch {
     } finally {
       setDisabled(false);
       setTimeout(() => inputRef.current?.focus(), 0);
     }
   };
 
+  const hasTodos = userTodos.length > 0;
+
   return (
     <header className="todoapp__header">
-      <button
-        type="button"
-        className={cn('todoapp__toggle-all', { active: isToggleAllButton })}
-        data-cy="ToggleAllButton"
-        disabled={userTodos.length === 0}
-        onClick={toggleAllButton}
-      />
+      {hasTodos && (
+        <button
+          type="button"
+          className={cn('todoapp__toggle-all', { active: areAllCompleted })}
+          data-cy="ToggleAllButton"
+          onClick={toggleAllButton}
+        />
+      )}
 
       <form onSubmit={handleSubmit}>
         <input
