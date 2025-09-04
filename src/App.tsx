@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { UserWarning } from './UserWarning';
 import {
   addTodos,
@@ -23,44 +23,29 @@ const normalize = (todos: Todo[]): Todo[] =>
 export const App: React.FC = () => {
   const [userTodos, setUserTodos] = useState<Todo[]>([]);
   const [errorMassage, setErrorMassage] = useState<ErrorMessage | null>(null);
+  const [errorKey, setErrorKey] = useState(0);
   const [sortTodo, setsortTodo] = useState<Sort>('all');
   const [clearCompletedDisabled, setClearCompletedDisabled] = useState(true);
   const [isLoader, setIsLoader] = useState<string | number | null>(null);
   const [tempTitle, setTempTitle] = useState('');
   const [updateAfterClearDelete, setUpdateAfterClearDelete] = useState(true);
-
   const [focusSignal, setFocusSignal] = useState(0);
 
-  const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const hideErrorNow = useCallback(() => {
-    if (errorTimerRef.current) {
-      clearTimeout(errorTimerRef.current);
-      errorTimerRef.current = null;
-    }
-
     setErrorMassage(null);
   }, []);
 
-  const showError = useCallback(
-    (msg: ErrorMessage) => {
-      hideErrorNow();
-      setErrorMassage(msg);
-      errorTimerRef.current = setTimeout(() => {
-        setErrorMassage(null);
-        errorTimerRef.current = null;
-      }, 3000);
-    },
-    [hideErrorNow],
-  );
-
-  useEffect(() => () => hideErrorNow(), [hideErrorNow]);
+  const showError = useCallback((msg: ErrorMessage) => {
+    setErrorMassage(msg);
+    setErrorKey(k => k + 1);
+  }, []);
 
   useEffect(() => {
     getTodos()
       .then(ts => setUserTodos(normalize(ts)))
       .catch(() => showError(ErrorMessage.Load));
-  }, [updateAfterClearDelete, showError]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [updateAfterClearDelete]);
 
   useEffect(() => {
     setClearCompletedDisabled(!userTodos.some(t => t.completed));
@@ -70,36 +55,42 @@ export const App: React.FC = () => {
     return <UserWarning />;
   }
 
-  function addToDo(title: string) {
+  function addToDo(title: string): Promise<void> {
     hideErrorNow();
 
-    const userId = USER_ID;
-    const completed = false;
+    const trimmed = title.trim();
 
-    if (!title) {
+    if (!trimmed) {
       showError(ErrorMessage.Empty);
 
       return Promise.resolve();
     }
 
     setIsLoader('temp');
-    setTempTitle(title);
+    setTempTitle(trimmed);
 
-    return addTodos({ title, userId, completed })
+    const userId = USER_ID;
+    const completed = false;
+
+    return addTodos({ title: trimmed, userId, completed })
       .then(newToDo => {
         setUserTodos(curr => [
           ...curr,
           { ...newToDo, completed: newToDo.completed === true },
         ]);
       })
-      .catch(err => {
+      .catch(() => {
         showError(ErrorMessage.Add);
-        throw err;
+
+        return Promise.reject('create-failed');
       })
-      .finally(() => setIsLoader(null));
+      .finally(() => {
+        setIsLoader(null);
+        setTempTitle('');
+      });
   }
 
-  function deletePost(postId: number) {
+  function deletePost(postId: number): Promise<void> {
     hideErrorNow();
     setIsLoader(postId);
 
@@ -108,9 +99,10 @@ export const App: React.FC = () => {
         setUserTodos(curr => curr.filter(t => t.id !== postId));
         setFocusSignal(s => s + 1);
       })
-      .catch(err => {
+      .catch(() => {
         showError(ErrorMessage.Delete);
-        throw err;
+
+        return Promise.reject('delete-failed');
       })
       .finally(() => setIsLoader(null));
   }
@@ -125,25 +117,24 @@ export const App: React.FC = () => {
 
     return updateTodos({ id: postId, completed, title })
       .then(updatedTodo =>
-        setUserTodos(prevTodos =>
-          prevTodos.map(todo =>
-            todo.id === updatedTodo.id ? updatedTodo : todo,
+        setUserTodos(prev =>
+          prev.map(t =>
+            t.id === updatedTodo.id
+              ? { ...updatedTodo, completed: updatedTodo.completed === true }
+              : t,
           ),
         ),
       )
-      .catch(err => {
+      .catch(() => {
         showError(ErrorMessage.Update);
-        throw err;
       })
       .finally(() => setIsLoader(null));
   }
 
-  function clearDelete(completedTodos: Todo[]) {
+  function clearDelete(completedTodos: Todo[]): void {
     hideErrorNow();
 
-    const completedIds = completedTodos
-      .filter(todo => todo.completed)
-      .map(todo => todo.id);
+    const completedIds = completedTodos.filter(t => t.completed).map(t => t.id);
 
     const deleteResults = completedIds.map(id =>
       deleteTodos(id)
@@ -151,20 +142,14 @@ export const App: React.FC = () => {
         .catch(() => {
           showError(ErrorMessage.Delete);
 
-          return {
-            id,
-            success: false,
-          };
+          return { id, success: false };
         }),
     );
 
     Promise.all(deleteResults).then(results => {
       const successfulIds = results.filter(r => r.success).map(r => r.id);
 
-      setUserTodos(curr =>
-        curr.filter(todo => !successfulIds.includes(todo.id)),
-      );
-
+      setUserTodos(curr => curr.filter(t => !successfulIds.includes(t.id)));
       setUpdateAfterClearDelete(prev => !prev);
       setFocusSignal(s => s + 1);
     });
@@ -213,7 +198,11 @@ export const App: React.FC = () => {
         )}
       </div>
 
-      <ErrorMassage errorMassage={errorMassage} massage={setErrorMassage} />
+      <ErrorMassage
+        key={errorKey}
+        message={errorMassage}
+        onClose={hideErrorNow}
+      />
     </div>
   );
 };

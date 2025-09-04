@@ -1,7 +1,7 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
 
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import cn from 'classnames';
 import { Todo } from '../types/Todo';
 
@@ -22,26 +22,46 @@ export const TodoList: React.FC<Props> = ({
 }) => {
   const [editId, setEditId] = useState<number | null>(null);
   const [editTitle, setEditTitle] = useState('');
+  const inputRef = useRef<HTMLInputElement | null>(null);
 
   const startEdit = (id: number, title: string) => {
     setEditId(id);
     setEditTitle(title);
   };
 
+  useEffect(() => {
+    if (editId !== null) {
+      inputRef.current?.focus();
+      inputRef.current?.select();
+    }
+  }, [editId]);
+
   const finishEdit = async (
     id: number,
     completed: boolean,
     originalTitle: string,
   ) => {
-    if (editId !== null) {
-      setEditId(null);
-    }
-
     const newTitle = editTitle.trim();
 
-    if (newTitle !== originalTitle.trim()) {
-      await onUpdate(id, completed, newTitle);
+    if (newTitle === originalTitle.trim()) {
+      setEditId(null);
+
+      return;
     }
+
+    if (!newTitle) {
+      try {
+        await onDelete(id);
+        setEditId(null);
+      } catch {
+        // setEditTitle(originalTitle);
+      }
+
+      return;
+    }
+
+    await onUpdate(id, completed, newTitle);
+    setEditId(null);
   };
 
   const onKeyDown = async (
@@ -51,10 +71,12 @@ export const TodoList: React.FC<Props> = ({
     originalTitle: string,
   ) => {
     if (e.key === 'Enter') {
+      e.preventDefault();
       await finishEdit(id, completed, originalTitle);
     } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setEditTitle(originalTitle);
       setEditId(null);
-      setEditTitle('');
     }
   };
 
@@ -63,6 +85,7 @@ export const TodoList: React.FC<Props> = ({
       {sortedUserTodo.map(todo => {
         const isThisTodoLoading = isLoader === todo.id || isLoader === 'all';
         const isCompleted = todo.completed === true;
+        const isEditing = editId === todo.id;
 
         return (
           <div
@@ -70,6 +93,7 @@ export const TodoList: React.FC<Props> = ({
             data-cy="Todo"
             className={cn('todo', 'item-enter-done', {
               completed: isCompleted,
+              editing: isEditing,
             })}
           >
             <label
@@ -83,21 +107,11 @@ export const TodoList: React.FC<Props> = ({
                 className="todo__status"
                 checked={isCompleted}
                 onChange={() => onUpdate(todo.id, !isCompleted, todo.title)}
+                disabled={isThisTodoLoading}
               />
             </label>
 
-            {editId === todo.id ? (
-              <input
-                data-cy="NewTodoField"
-                type="text"
-                className="edit-input"
-                value={editTitle}
-                onChange={e => setEditTitle(e.target.value)}
-                onBlur={() => finishEdit(todo.id, isCompleted, todo.title)}
-                onKeyDown={e => onKeyDown(e, todo.id, isCompleted, todo.title)}
-                autoFocus
-              />
-            ) : (
+            {!isEditing && (
               <span
                 data-cy="TodoTitle"
                 className="todo__title"
@@ -107,14 +121,31 @@ export const TodoList: React.FC<Props> = ({
               </span>
             )}
 
-            <button
-              type="button"
-              className="todo__remove"
-              data-cy="TodoDelete"
-              onClick={() => onDelete(todo.id)}
-            >
-              ×
-            </button>
+            {isEditing && (
+              <input
+                data-cy="TodoTitleField"
+                ref={inputRef}
+                type="text"
+                className="edit-input"
+                value={editTitle}
+                onChange={e => setEditTitle(e.target.value)}
+                onBlur={() => finishEdit(todo.id, isCompleted, todo.title)}
+                onKeyDown={e => onKeyDown(e, todo.id, isCompleted, todo.title)}
+                autoFocus
+              />
+            )}
+
+            {!isEditing && (
+              <button
+                type="button"
+                className="todo__remove"
+                data-cy="TodoDelete"
+                onClick={() => onDelete(todo.id)}
+                disabled={isThisTodoLoading}
+              >
+                ×
+              </button>
+            )}
 
             <div
               data-cy="TodoLoader"

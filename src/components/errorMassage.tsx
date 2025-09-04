@@ -1,31 +1,47 @@
+import React, { useEffect } from 'react';
 import cn from 'classnames';
-import React from 'react';
 import { ErrorMessage } from '../types/ErrorMessage';
 
 type Props = {
-  errorMassage: ErrorMessage | null;
-  massage: (value: null) => void;
+  message: ErrorMessage | null;
+  onClose: () => void;
 };
 
-export const ErrorMassage: React.FC<Props> = ({ errorMassage, massage }) => {
+export const ErrorMassage: React.FC<Props> = ({ message, onClose }) => {
+  useEffect(() => {
+    if (!message) {
+      return;
+    }
+
+    const id = window.setTimeout(onClose, 3000);
+
+    return () => window.clearTimeout(id);
+  }, [message, onClose]);
+
+  const isOpen = Boolean(message);
+
   return (
     <div
       data-cy="ErrorNotification"
+      role="alert"
+      aria-live="polite"
+      aria-hidden={!isOpen}
       className={cn(
         'notification',
         'is-danger',
         'is-light',
         'has-text-weight-normal',
-        { hidden: !errorMassage },
+        { hidden: !isOpen },
       )}
     >
       <button
         data-cy="HideErrorButton"
         type="button"
         className="delete"
-        onClick={() => massage(null)}
+        onClick={onClose}
+        aria-label="Hide error"
       />
-      {errorMassage}
+      {message ?? ''}
     </div>
   );
 };

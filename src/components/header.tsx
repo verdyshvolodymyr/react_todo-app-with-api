@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import cn from 'classnames';
 import { Todo } from '../types/Todo';
-import { getTodos, updateTodos } from '../api/todos';
+import { updateTodos } from '../api/todos';
 
 type Props = {
   onSubmit: (value: string) => Promise<void>;
@@ -53,22 +53,23 @@ export const Header: React.FC<Props> = ({
 
     setIsLoader('all');
 
+    const prevTodos = userTodos;
+    const optimistic = prevTodos.map(t =>
+      t.completed === shouldComplete ? t : { ...t, completed: shouldComplete },
+    );
+
+    setUserTodos(optimistic);
+
     try {
-      const toUpdate = userTodos.filter(t => t.completed !== shouldComplete);
+      const toUpdate = prevTodos.filter(t => t.completed !== shouldComplete);
 
       await Promise.all(
-        toUpdate.map(todo =>
-          updateTodos({
-            id: todo.id,
-            completed: shouldComplete,
-            title: todo.title,
-          }),
+        toUpdate.map(t =>
+          updateTodos({ id: t.id, completed: shouldComplete, title: t.title }),
         ),
       );
-
-      const updated = await getTodos();
-
-      setUserTodos(updated);
+    } catch {
+      setUserTodos(prevTodos);
     } finally {
       setIsLoader(null);
     }
