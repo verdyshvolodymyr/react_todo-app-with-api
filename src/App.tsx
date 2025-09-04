@@ -57,7 +57,6 @@ export const App: React.FC = () => {
 
   function addToDo(title: string): Promise<void> {
     hideErrorNow();
-
     const trimmed = title.trim();
 
     if (!trimmed) {
@@ -127,6 +126,8 @@ export const App: React.FC = () => {
       )
       .catch(() => {
         showError(ErrorMessage.Update);
+
+        return Promise.reject('update-failed');
       })
       .finally(() => setIsLoader(null));
   }

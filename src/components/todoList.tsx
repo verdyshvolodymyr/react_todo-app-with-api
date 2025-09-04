@@ -54,14 +54,18 @@ export const TodoList: React.FC<Props> = ({
         await onDelete(id);
         setEditId(null);
       } catch {
-        // setEditTitle(originalTitle);
+        //
       }
 
       return;
     }
 
-    await onUpdate(id, completed, newTitle);
-    setEditId(null);
+    try {
+      await onUpdate(id, completed, newTitle);
+      setEditId(null);
+    } catch {
+      setTimeout(() => inputRef.current?.focus(), 0);
+    }
   };
 
   const onKeyDown = async (
