@@ -1,6 +1,6 @@
 /* eslint-disable jsx-a11y/label-has-associated-control */
 /* eslint-disable jsx-a11y/control-has-associated-label */
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { UserWarning } from './UserWarning';
 import {
   addTodos,
@@ -24,17 +24,13 @@ export const App: React.FC = () => {
   const [userTodos, setUserTodos] = useState<Todo[]>([]);
   const [errorMassage, setErrorMassage] = useState<ErrorMessage | null>(null);
   const [errorKey, setErrorKey] = useState(0);
-  const [sortTodo, setsortTodo] = useState<Sort>('all');
-  const [clearCompletedDisabled, setClearCompletedDisabled] = useState(true);
+  const [sortTodo, setSortTodo] = useState<Sort>('all');
+
   const [isLoader, setIsLoader] = useState<string | number | null>(null);
   const [tempTitle, setTempTitle] = useState('');
-  const [updateAfterClearDelete, setUpdateAfterClearDelete] = useState(true);
   const [focusSignal, setFocusSignal] = useState(0);
 
-  const hideErrorNow = useCallback(() => {
-    setErrorMassage(null);
-  }, []);
-
+  const hideErrorNow = useCallback(() => setErrorMassage(null), []);
   const showError = useCallback((msg: ErrorMessage) => {
     setErrorMassage(msg);
     setErrorKey(k => k + 1);
@@ -44,166 +40,177 @@ export const App: React.FC = () => {
     getTodos()
       .then(ts => setUserTodos(normalize(ts)))
       .catch(() => showError(ErrorMessage.Load));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [updateAfterClearDelete]);
+  }, [showError]);
 
-  useEffect(() => {
-    setClearCompletedDisabled(!userTodos.some(t => t.completed));
-  }, [userTodos]);
+  const isClearCompletedDisabled = useMemo(
+    () => !userTodos.some(t => t.completed),
+    [userTodos],
+  );
 
-  if (!USER_ID) {
-    return <UserWarning />;
-  }
-
-  function addToDo(title: string): Promise<void> {
-    hideErrorNow();
-    const trimmed = title.trim();
-
-    if (!trimmed) {
-      showError(ErrorMessage.Empty);
-
-      return Promise.resolve();
+  const sortedUserTodo = useMemo(() => {
+    switch (sortTodo) {
+      case 'active':
+        return userTodos.filter(t => !t.completed);
+      case 'completed':
+        return userTodos.filter(t => t.completed);
+      default:
+        return userTodos;
     }
+  }, [userTodos, sortTodo]);
 
-    setIsLoader('temp');
-    setTempTitle(trimmed);
+  const addToDo = useCallback(
+    async (title: string): Promise<void> => {
+      hideErrorNow();
 
-    const userId = USER_ID;
-    const completed = false;
+      const trimmed = title.trim();
 
-    return addTodos({ title: trimmed, userId, completed })
-      .then(newToDo => {
+      if (!trimmed) {
+        showError(ErrorMessage.Empty);
+
+        return;
+      }
+
+      setIsLoader('temp');
+      setTempTitle(trimmed);
+
+      try {
+        const newToDo = await addTodos({
+          title: trimmed,
+          userId: USER_ID,
+          completed: false,
+        });
+
         setUserTodos(curr => [
           ...curr,
           { ...newToDo, completed: newToDo.completed === true },
         ]);
-      })
-      .catch(() => {
+      } catch {
         showError(ErrorMessage.Add);
-
-        return Promise.reject('create-failed');
-      })
-      .finally(() => {
+        throw new Error('create-failed');
+      } finally {
         setIsLoader(null);
         setTempTitle('');
-      });
-  }
+      }
+    },
+    [hideErrorNow, showError],
+  );
 
-  function deletePost(postId: number): Promise<void> {
-    hideErrorNow();
-    setIsLoader(postId);
+  const deletePost = useCallback(
+    async (postId: number): Promise<void> => {
+      hideErrorNow();
+      setIsLoader(postId);
 
-    return deleteTodos(postId)
-      .then(() => {
+      try {
+        await deleteTodos(postId);
         setUserTodos(curr => curr.filter(t => t.id !== postId));
         setFocusSignal(s => s + 1);
-      })
-      .catch(() => {
+      } catch {
         showError(ErrorMessage.Delete);
+        throw new Error('delete-failed');
+      } finally {
+        setIsLoader(null);
+      }
+    },
+    [hideErrorNow, showError],
+  );
 
-        return Promise.reject('delete-failed');
-      })
-      .finally(() => setIsLoader(null));
-  }
+  const updatePost = useCallback(
+    async (
+      postId: number,
+      completed: boolean,
+      title: string,
+    ): Promise<void> => {
+      hideErrorNow();
+      setIsLoader(postId);
 
-  function updatePost(
-    postId: number,
-    completed: boolean,
-    title: string,
-  ): Promise<void> {
-    hideErrorNow();
-    setIsLoader(postId);
+      try {
+        const updatedTodo = await updateTodos({ id: postId, completed, title });
 
-    return updateTodos({ id: postId, completed, title })
-      .then(updatedTodo =>
         setUserTodos(prev =>
           prev.map(t =>
             t.id === updatedTodo.id
               ? { ...updatedTodo, completed: updatedTodo.completed === true }
               : t,
           ),
-        ),
-      )
-      .catch(() => {
+        );
+      } catch {
         showError(ErrorMessage.Update);
+        throw new Error('update-failed');
+      } finally {
+        setIsLoader(null);
+      }
+    },
+    [hideErrorNow, showError],
+  );
 
-        return Promise.reject('update-failed');
-      })
-      .finally(() => setIsLoader(null));
-  }
+  const clearDelete = useCallback(
+    async (completedTodos: Todo[]): Promise<void> => {
+      hideErrorNow();
 
-  function clearDelete(completedTodos: Todo[]): void {
-    hideErrorNow();
+      const completedIds = completedTodos
+        .filter(t => t.completed)
+        .map(t => t.id);
 
-    const completedIds = completedTodos.filter(t => t.completed).map(t => t.id);
+      const results = await Promise.allSettled(
+        completedIds.map(id => deleteTodos(id)),
+      );
 
-    const deleteResults = completedIds.map(id =>
-      deleteTodos(id)
-        .then(() => ({ id, success: true }))
-        .catch(() => {
-          showError(ErrorMessage.Delete);
+      const successfulIds = completedIds.filter(
+        (_, i) => results[i].status === 'fulfilled',
+      );
 
-          return { id, success: false };
-        }),
-    );
-
-    Promise.all(deleteResults).then(results => {
-      const successfulIds = results.filter(r => r.success).map(r => r.id);
+      if (successfulIds.length !== completedIds.length) {
+        showError(ErrorMessage.Delete);
+      }
 
       setUserTodos(curr => curr.filter(t => !successfulIds.includes(t.id)));
-      setUpdateAfterClearDelete(prev => !prev);
       setFocusSignal(s => s + 1);
-    });
-  }
-
-  const sortedUserTodo = userTodos.filter(todo => {
-    if (sortTodo === 'active') {
-      return !todo.completed;
-    }
-
-    if (sortTodo === 'completed') {
-      return todo.completed;
-    }
-
-    return true;
-  });
+    },
+    [hideErrorNow, showError],
+  );
 
   return (
     <div className="todoapp">
       <h1 className="todoapp__title">todos</h1>
 
-      <div className="todoapp__content">
-        <Header
-          onSubmit={addToDo}
-          userTodos={userTodos}
-          setUserTodos={setUserTodos}
-          setIsLoader={setIsLoader}
-          focusSignal={focusSignal}
-        />
+      {!USER_ID ? (
+        <UserWarning />
+      ) : (
+        <>
+          <div className="todoapp__content">
+            <Header
+              onSubmit={addToDo}
+              userTodos={userTodos}
+              setUserTodos={setUserTodos}
+              setIsLoader={setIsLoader}
+              focusSignal={focusSignal}
+            />
 
-        <TodoList
-          sortedUserTodo={sortedUserTodo}
-          onDelete={deletePost}
-          onUpdate={updatePost}
-          isLoader={isLoader}
-          tempTitle={tempTitle}
-        />
+            <TodoList
+              sortedUserTodo={sortedUserTodo}
+              onDelete={deletePost}
+              onUpdate={updatePost}
+              isLoader={isLoader}
+              tempTitle={tempTitle}
+            />
 
-        {userTodos.length > 0 && (
-          <Footer
-            sort={setsortTodo}
-            userTodo={userTodos}
-            visible={clearCompletedDisabled}
-            clearDelete={clearDelete}
+            {userTodos.length > 0 && (
+              <Footer
+                sort={setSortTodo}
+                userTodo={userTodos}
+                visible={isClearCompletedDisabled}
+                clearDelete={clearDelete}
+              />
+            )}
+          </div>
+
+          <ErrorMassage
+            key={errorKey}
+            message={errorMassage}
+            onClose={hideErrorNow}
           />
-        )}
-      </div>
-
-      <ErrorMassage
-        key={errorKey}
-        message={errorMassage}
-        onClose={hideErrorNow}
-      />
+        </>
+      )}
     </div>
   );
 };
